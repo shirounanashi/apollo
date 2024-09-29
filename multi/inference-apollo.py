@@ -24,10 +24,10 @@ def process_chunk(chunk, model):
     with torch.no_grad():
         return model(chunk).squeeze(0).squeeze(0).cpu()
 
-def _getWindowingArray(window_size, fade_size):
-    fadein = torch.linspace(1, 1, fade_size)
-    fadeout = torch.linspace(0, 0, fade_size)
-    window = torch.ones(window_size)
+def _getWindowingArray(window_size, fade_size, device):
+    fadein = torch.linspace(1, 1, fade_size, device=device)
+    fadeout = torch.linspace(0, 0, fade_size, device=device)
+    window = torch.ones(window_size, device=device)
     window[-fade_size:] *= fadeout
     window[:fade_size] *= fadein
     return window
@@ -39,9 +39,11 @@ def dBgain(audio, volume_gain_dB):
 
 def process_audio_file(input_wav, output_wav, ckpt_path, gpu_id):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    model = look2hear.models.BaseModel.from_pretrain(ckpt_path, sr=44100, win=20, feature_dim=256, layer=6)
+    device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() else 'cpu')
+    model = look2hear.models.BaseModel.from_pretrain(ckpt_path, sr=44100, win=20, feature_dim=256, layer=6).to(device)
 
     test_data, samplerate = load_audio(input_wav)
+    test_data = test_data.to(device)
 
     C = chunk_size * samplerate
     N = overlap
@@ -57,10 +59,10 @@ def process_audio_file(input_wav, output_wav, ckpt_path, gpu_id):
     if test_data.shape[1] > 2 * border and (border > 0):
         test_data = torch.nn.functional.pad(test_data, (border, border), mode='reflect')
 
-    windowingArray = _getWindowingArray(C, fade_size)
+    windowingArray = _getWindowingArray(C, fade_size, device)
 
-    result = torch.zeros((1,) + tuple(test_data.shape), dtype=torch.float32)
-    counter = torch.zeros((1,) + tuple(test_data.shape), dtype=torch.float32)
+    result = torch.zeros((1,) + tuple(test_data.shape), dtype=torch.float32, device=device)
+    counter = torch.zeros((1,) + tuple(test_data.shape), dtype=torch.float32, device=device)
 
     i = 0
     progress_bar = tqdm(total=test_data.shape[1], desc="Processing audio chunks", leave=False)
@@ -91,7 +93,7 @@ def process_audio_file(input_wav, output_wav, ckpt_path, gpu_id):
     progress_bar.close()
 
     final_output = result / counter
-    final_output = final_output.squeeze(0).numpy()
+    final_output = final_output.squeeze(0).cpu().numpy()
     np.nan_to_num(final_output, copy=False, nan=0.0)
 
     if test_data.shape[1] > 2 * border and (border > 0):
