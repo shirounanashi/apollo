@@ -11,16 +11,16 @@ from multiprocessing import Process
 
 warnings.filterwarnings("ignore")
 
-def load_audio(file_path):
+def load_audio(file_path, device):
     audio, samplerate = librosa.load(file_path, mono=False, sr=44100)
     print(f'INPUT audio.shape = {audio.shape} | samplerate = {samplerate}')
-    return torch.from_numpy(audio), samplerate
+    return torch.from_numpy(audio).to(device), samplerate
 
 def save_audio(file_path, audio, samplerate=44100):
-    sf.write(file_path, audio.T, samplerate, subtype="PCM_16")
+    sf.write(file_path, audio.T.cpu(), samplerate, subtype="PCM_16")
 
-def process_chunk(chunk, model):
-    chunk = chunk.unsqueeze(0).cuda()
+def process_chunk(chunk, model, device):
+    chunk = chunk.unsqueeze(0).to(device)
     with torch.no_grad():
         return model(chunk).squeeze(0).squeeze(0).cpu()
 
@@ -42,8 +42,7 @@ def process_audio_file(input_wav, output_wav, ckpt_path, gpu_id):
     device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() else 'cpu')
     model = look2hear.models.BaseModel.from_pretrain(ckpt_path, sr=44100, win=20, feature_dim=256, layer=6).to(device)
 
-    test_data, samplerate = load_audio(input_wav)
-    test_data = test_data.to(device)
+    test_data, samplerate = load_audio(input_wav, device)
 
     C = chunk_size * samplerate
     N = overlap
@@ -76,7 +75,7 @@ def process_audio_file(input_wav, output_wav, ckpt_path, gpu_id):
             else:
                 part = torch.nn.functional.pad(input=part, pad=(0, C - length, 0, 0), mode='constant', value=0)
 
-        out = process_chunk(part, model)
+        out = process_chunk(part, model, device)
 
         window = windowingArray
         if i == 0:
