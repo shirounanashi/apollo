@@ -105,8 +105,6 @@ def process_audio_file(input_wav, output_wav, ckpt_path):
     torch.cuda.empty_cache()
 
 def main(input_dir, output_dir, ckpt_path):
-    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1"
-
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
