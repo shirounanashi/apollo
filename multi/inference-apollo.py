@@ -7,6 +7,7 @@ from tqdm.auto import tqdm
 import argparse
 import numpy as np
 import warnings
+from multiprocessing import Process
 
 warnings.filterwarnings("ignore")
 
@@ -18,7 +19,7 @@ def load_audio(file_path):
 def save_audio(file_path, audio, samplerate=44100):
     sf.write(file_path, audio.T, samplerate, subtype="PCM_16")
 
-def process_chunk(chunk):
+def process_chunk(chunk, model):
     chunk = chunk.unsqueeze(0).cuda()
     with torch.no_grad():
         return model(chunk).squeeze(0).squeeze(0).cpu()
@@ -36,10 +37,9 @@ def dBgain(audio, volume_gain_dB):
     gained_audio = audio * gain
     return gained_audio
 
-def process_audio_file(input_wav, output_wav, ckpt_path):
-    global model
+def process_audio_file(input_wav, output_wav, ckpt_path, gpu_id):
+    torch.cuda.set_device(gpu_id)
     model = look2hear.models.BaseModel.from_pretrain(ckpt_path, sr=44100, win=20, feature_dim=256, layer=6)
-    model = torch.nn.DataParallel(model).cuda()
 
     test_data, samplerate = load_audio(input_wav)
 
@@ -74,7 +74,7 @@ def process_audio_file(input_wav, output_wav, ckpt_path):
             else:
                 part = torch.nn.functional.pad(input=part, pad=(0, C - length, 0, 0), mode='constant', value=0)
 
-        out = process_chunk(part)
+        out = process_chunk(part, model)
 
         window = windowingArray
         if i == 0:
@@ -104,15 +104,30 @@ def process_audio_file(input_wav, output_wav, ckpt_path):
     del model
     torch.cuda.empty_cache()
 
+def process_files(file_list, input_dir, output_dir, ckpt_path, gpu_id):
+    for file_name in file_list:
+        if file_name.endswith(".flac") or file_name.endswith(".wav"):
+            input_wav = os.path.join(input_dir, file_name)
+            output_wav = os.path.join(output_dir, file_name)
+            process_audio_file(input_wav, output_wav, ckpt_path, gpu_id)
+
 def main(input_dir, output_dir, ckpt_path):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    for file_name in os.listdir(input_dir):
-        if file_name.endswith(".flac") or file_name.endswith(".wav"):
-            input_wav = os.path.join(input_dir, file_name)
-            output_wav = os.path.join(output_dir, file_name)
-            process_audio_file(input_wav, output_wav, ckpt_path)
+    files = [f for f in os.listdir(input_dir) if f.endswith(".flac") or f.endswith(".wav")]
+    half = len(files) // 2
+    files_1 = files[:half]
+    files_2 = files[half:]
+
+    p1 = Process(target=process_files, args=(files_1, input_dir, output_dir, ckpt_path, 0))
+    p2 = Process(target=process_files, args=(files_2, input_dir, output_dir, ckpt_path, 1))
+
+    p1.start()
+    p2.start()
+
+    p1.join()
+    p2.join()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Audio Inference Script")
