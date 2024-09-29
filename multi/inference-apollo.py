@@ -109,7 +109,7 @@ def main(input_dir, output_dir, ckpt_path):
         os.makedirs(output_dir)
 
     for file_name in os.listdir(input_dir):
-        if file_name.endswith(".wav"):
+        if file_name.endswith(".flac") or file_name.endswith(".wav"):
             input_wav = os.path.join(input_dir, file_name)
             output_wav = os.path.join(output_dir, file_name)
             process_audio_file(input_wav, output_wav, ckpt_path)
