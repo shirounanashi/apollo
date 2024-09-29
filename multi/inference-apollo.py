@@ -38,7 +38,7 @@ def dBgain(audio, volume_gain_dB):
     return gained_audio
 
 def process_audio_file(input_wav, output_wav, ckpt_path, gpu_id):
-    torch.cuda.set_device(gpu_id)
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     model = look2hear.models.BaseModel.from_pretrain(ckpt_path, sr=44100, win=20, feature_dim=256, layer=6)
 
     test_data, samplerate = load_audio(input_wav)
